@@ -72,24 +72,123 @@ Para cuando necesites reiniciar:
 
 ---
 
-## 🛠️ Opcional: Scripts en Python
+## 🛠️ Detalle de los Scripts en Python
 
-Si prefieres no usar el notebook:
+Además de la versión en Notebook, este repositorio incluye tres scripts independientes en `scripts/`, cada uno pensado para un paso clave:
 
-```bash
-pip install -r requirements.txt
-python scripts/config_server.py \  
-    --version 1.21.1 --ram 12G --type paper --tunnel ngrok
-python scripts/start_server.py --tunnel ngrok
-# Para reiniciar:
-python scripts/restart_server.py --tunnel ngrok
-```
+1. **`config_server.py`** — **Configuración inicial (ejecútalo una sola vez)**
 
-Cada script replica la lógica de su paso correspondiente y puede integrarse en workflows automáticos.
+   * *Objetivo*: crear la carpeta base en Google Drive para persistencia del mundo y los plugins.
+   * *Funcionalidad principal*:
 
----
+     ```python
+     # scripts/config_server.py  (extracto)
+     from pathlib import Path
+     import argparse
 
-## 📂 Persistencia en Google Drive
+     def init_drive(version, ram, server_type, mount_point):
+         drive_path = Path(mount_point) / 'Minecraft-Server'
+         world_path = drive_path / 'world'
+         plugins_path = drive_path / 'plugins'
+         drive_path.mkdir(parents=True, exist_ok=True)
+         world_path.mkdir(exist_ok=True)
+         plugins_path.mkdir(exist_ok=True)
+         # Descarga y configura el jar:
+         jar_url = f'https://papermc.io/api/v2/projects/{server_type}/versions/{version}/builds/latest/downloads/{server_type}-{version}.jar'
+         # ... código para descargar con requests y guardar en drive_path
+
+     if __name__ == '__main__':
+         parser = argparse.ArgumentParser()
+         parser.add_argument('--version', required=True)
+         parser.add_argument('--ram', default='2G')
+         parser.add_argument('--type', choices=['paper','vanilla','fabric'], default='paper')
+         parser.add_argument('--mount-point', default='/content/drive/My Drive')
+         args = parser.parse_args()
+         init_drive(args.version, args.ram, args.type, args.mount_point)
+     ```
+   * **Uso típico**:
+
+     ```bash
+     python scripts/config_server.py \
+       --version 1.21.1 --ram 8G --type paper --mount-point '/content/drive/My Drive'
+     ```
+
+2. **`start_server.py`** — **Inicio del servidor (útil cada vez que arrancas Colab)**
+
+   * *Objetivo*: lanzar el servidor con la configuración elegida y exponerlo mediante túnel.
+   * *Funciones principales*:
+
+     ```python
+     # scripts/start_server.py  (extracto)
+     import subprocess, argparse
+
+     def start_server(ram, jar_path, tunnel):
+         cmd = ['java', f'-Xmx{ram}', '-jar', jar_path, 'nogui']
+         server_proc = subprocess.Popen(cmd)
+         if tunnel == 'ngrok':
+             subprocess.run(['ngrok', 'tcp', '25565', '--log', 'stdout'])
+         else:  # playit
+             subprocess.run(['playit', 'serve', '--port', '25565'])
+         server_proc.wait()
+
+     if __name__=='__main__':
+         parser = argparse.ArgumentParser()
+         parser.add_argument('--ram', default='8G')
+         parser.add_argument('--tunnel', choices=['ngrok','playit'], default='ngrok')
+         args = parser.parse_args()
+         start_server(args.ram, '/content/drive/My Drive/Minecraft-Server/paper-1.21.1.jar', args.tunnel)
+     ```
+   * **Uso típico**:
+
+     ```bash
+     python scripts/start_server.py --ram 8G --tunnel playit
+     ```
+
+3. **`restart_server.py`** — **Reinicio seguro (tras instalar plugins o mods)**
+
+   * *Objetivo*: detener el servidor en ejecución y reiniciarlo sin perder el mundo ni configuración de túnel.
+   * *Extracto de código*:
+
+     ```python
+     # scripts/restart_server.py  (extracto)
+     import subprocess, argparse, psutil
+
+     def restart(jar_path, ram, tunnel):
+         # Encontrar proceso Java y matarlo:
+         for proc in psutil.process_iter(['name','pid']):
+             if proc.info['name']=='java': proc.kill()
+         # Iniciar de nuevo con start_server.py
+         subprocess.run(['python','start_server.py','--ram',ram,'--tunnel',tunnel])
+
+     if __name__=='__main__':
+         parser = argparse.ArgumentParser()
+         parser.add_argument('--ram', default='8G')
+         parser.add_argument('--tunnel', choices=['ngrok','playit'], default='ngrok')
+         args = parser.parse_args()
+         restart('/content/drive/My Drive/Minecraft-Server/paper-1.21.1.jar', args.ram, args.tunnel)
+     ```
+   * **Uso típico**:
+
+     ```bash
+     python scripts/restart_server.py --ram 8G --tunnel ngrok
+     ```
+
+### 🔄 Flexibilidad y Configuración
+
+* **Versiones de Minecraft**: soporta `1.19.x` hasta `1.21.x`, simplemente ajusta `--version` en `config_server.py`.
+* **Tipos de servidor**:
+
+  * `paper`: alto rendimiento y compatibilidad con plugins.
+  * `vanilla`: experiencia oficial sin modificaciones.
+  * `fabric`: ideal para mods con Fabric Loader.
+* **Proveedores de túnel**:
+
+  * **Ngrok**: rápido de configurar con `ngrok authtoken <TU_TOKEN>` y `--tunnel ngrok`.
+  * **Playit.gg**: requiere `playit` CLI y una cuenta gratuita para túneles persistentes.
+
+Con esta estructura modular, puedes integrar tus propios scripts, pipelines CI o incluso un bot de Discord que controle el servidor. ¡La nube es tu límite!
+
+## 📂 Persistencia en Google Drive en Google Drive
 
 El mundo se guarda en tu Drive bajo `Minecraft-Server/`:
 
